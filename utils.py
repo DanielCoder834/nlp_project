@@ -55,7 +55,7 @@ def tokenize_line(line: str, ngram: int,
     return tokens
 
 # PROVIDED
-def read_file_spooky(datapath: str, ngram: int, by_character: bool = False) -> list:
+def read_file_spooky(datapath: str, ngram: int, by_character: bool = False, max_rows=10000) -> list:
     '''Reads and Returns the "data" as list of list (as shown above)'''
     x_data = []
     y_data = []
@@ -63,6 +63,8 @@ def read_file_spooky(datapath: str, ngram: int, by_character: bool = False) -> l
     with open(datapath, encoding='utf-8') as csvfile:
         reader = csv.DictReader(csvfile)
         for index, row in enumerate(reader):
+            if max_rows is not None and index >= max_rows:
+                break  # Stop reading if max_rows is reached
             # THIS IS WHERE WE GET CHARACTERS INSTEAD OF WORDS
             # replace spaces with underscores
             x_data.append(tokenize_line(
@@ -70,3 +72,42 @@ def read_file_spooky(datapath: str, ngram: int, by_character: bool = False) -> l
             y_data.append(tokenize_line(
                 row['abstract'].lower(), ngram, by_char=by_character, space_char="_"))
     return x_data, y_data
+
+def save_word2vec(embeddings: Word2Vec, filename: str) -> None:
+    """
+    Saves weights of trained gensim Word2Vec model to a file.
+
+    Params:
+        obj: The object.
+        filename: The destination file.
+    """
+    print('Saving Word2Vec')
+    embeddings.save(filename)
+
+def train_word2vec(data: list[list[str]], embeddings_size: int,
+                    window: int = 5, min_count: int = 1, sg: int = 1) -> Word2Vec:
+    """
+    Create new word embeddings based on our data.
+
+    Params:
+        data: The corpus
+        embeddings_size: The dimensions in each embedding
+
+    Returns:
+        A gensim Word2Vec model
+        https://radimrehurek.com/gensim/models/word2vec.html
+    """
+    print('Creating Word2Vec')
+    return Word2Vec(sentences=data, 
+                    vector_size=embeddings_size, 
+                    window=window, 
+                    min_count=min_count, 
+                    sg=sg)
+def load_word2vec(filename: str) -> Word2Vec:
+    """
+    Loads weights of trained gensim Word2Vec model from a file.
+
+    Params:
+        filename: The saved model file.
+    """
+    return Word2Vec.load(filename)
