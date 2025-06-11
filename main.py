@@ -6,7 +6,9 @@ from torch.utils.data import TensorDataset, DataLoader
 from gensim.models import Word2Vec
 EMBEDDINGS_SIZE = 50
 NUM_SEQUENCES_PER_BATCH = 128
-
+from transformers import BertTokenizer, BertModel, BartForConditionalGeneration, BartTokenizer
+import textwrap
+import csv
 
 def read_data(filepath='train.csv'):
     start_time = datetime.datetime.now()
@@ -47,22 +49,37 @@ def create_dataloaders(X: list, y: list, num_sequences_per_batch: int,
         One DataLoader for training, and one for testing.
     """
     # YOUR CODE HERE
-    dataset = TensorDataset(torch.tensor(X["input_ids"]), torch.tensor(
-        X["attention_mask"]), torch.tensor(y["input_ids"]))
+    dataset = TensorDataset(X["input_ids"], X["attention_mask"], y["input_ids"])
     test_dataset, train_dataset = torch.utils.data.random_split(
         dataset, [test_pct, 1 - test_pct])
     test_loader, train_loader = DataLoader(test_dataset, batch_size=num_sequences_per_batch), DataLoader(
         train_dataset, batch_size=num_sequences_per_batch)
     return test_loader, train_loader
 
+def predict_with_model(data):
+    model_name = "facebook/bart-large-cnn"
+    model = BartForConditionalGeneration.from_pretrained(model_name)
+    tokenizer = BartTokenizer.from_pretrained(model_name)
+    inputs = tokenizer.encode("summarize: " + data, return_tensors="pt", max_length=1024, truncation=True)
+    summary_ids = model.generate(inputs, max_length=150, min_length=50, length_penalty=2.0, num_beams=4, early_stopping=True)
+
+    summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
+    formatted_summary = "\n".join(textwrap.wrap(summary, width=80))
+    return formatted_summary
 
 if __name__ == '__main__':
-    X, y = read_data()
+    # X, y = read_data()
     # print("THE START: -->", X[0])
     # print(y)
-    train_vec = utils.train_word2vec(X, EMBEDDINGS_SIZE)
-    utils.save_word2vec(train_vec, "word_embeddings")
-    embeddings = utils.load_word2vec("word_embeddings")
-    test_loader, train_loader = create_dataloaders(
-        X, y, NUM_SEQUENCES_PER_BATCH)
-    print(len(embeddings.wv))
+    # train_vec = utils.train_word2vec(X, EMBEDDINGS_SIZE)
+    # utils.save_word2vec(train_vec, "word_embeddings")
+    # embeddings = utils.load_word2vec("word_embeddings")
+    # test_loader, train_loader = create_dataloaders(
+    #     X, y, NUM_SEQUENCES_PER_BATCH)
+    # print(len(embeddings.wv))
+    with open('test.csv', encoding='utf-8') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for index, row in enumerate(reader):
+            data = row['article'].lower()
+            break
+    print(predict_with_model(data))
