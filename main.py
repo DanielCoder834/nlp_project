@@ -5,6 +5,7 @@ import torch
 from torch.utils.data import TensorDataset, DataLoader
 from gensim.models import Word2Vec
 EMBEDDINGS_SIZE = 50
+NUM_SEQUENCES_PER_BATCH = 128
 
 
 def read_data(filepath='train.csv'):
@@ -15,7 +16,8 @@ def read_data(filepath='train.csv'):
     print(f'Downloading runtime {end_time-start_time}')
     return X, y
 
-def create_dataloaders(X: list, y: list, num_sequences_per_batch: int, 
+
+def create_dataloaders(X: list, y: list, num_sequences_per_batch: int,
                        test_pct: float = 0.1, shuffle: bool = True) -> tuple[torch.utils.data.DataLoader]:
     """
     Convert our data into a PyTorch DataLoader.    
@@ -45,24 +47,22 @@ def create_dataloaders(X: list, y: list, num_sequences_per_batch: int,
         One DataLoader for training, and one for testing.
     """
     # YOUR CODE HERE
-    dataset = TensorDataset(torch.tensor(X), torch.tensor(y))
-    test_dataset, train_dataset = torch.utils.data.random_split(dataset, [test_pct, 1 - test_pct])
-    test_loader, train_loader = DataLoader(test_dataset, batch_size=num_sequences_per_batch), DataLoader(train_dataset, batch_size=num_sequences_per_batch)
+    dataset = TensorDataset(torch.tensor(X["input_ids"]), torch.tensor(
+        X["attention_mask"]), torch.tensor(y["input_ids"]))
+    test_dataset, train_dataset = torch.utils.data.random_split(
+        dataset, [test_pct, 1 - test_pct])
+    test_loader, train_loader = DataLoader(test_dataset, batch_size=num_sequences_per_batch), DataLoader(
+        train_dataset, batch_size=num_sequences_per_batch)
     return test_loader, train_loader
-
 
 
 if __name__ == '__main__':
     X, y = read_data()
+    # print("THE START: -->", X[0])
+    # print(y)
     train_vec = utils.train_word2vec(X, EMBEDDINGS_SIZE)
     utils.save_word2vec(train_vec, "word_embeddings")
     embeddings = utils.load_word2vec("word_embeddings")
+    test_loader, train_loader = create_dataloaders(
+        X, y, NUM_SEQUENCES_PER_BATCH)
     print(len(embeddings.wv))
-
-
-
-
-
-
-
-

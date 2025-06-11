@@ -7,15 +7,18 @@ import sys
 import torch
 import torch.nn as nn
 from gensim.models import Word2Vec
+from transformers import BertTokenizer
 
 nltk.download('punkt')
 nltk.download('punkt_tab')
 
 SENTENCE_BEGIN = "<s>"
 SENTENCE_END = "</s>"
-
+MAX_LENGTH = 256
 
 # PROVIDED
+
+
 def tokenize_line(line: str, ngram: int,
                   by_char: bool = True,
                   space_char: str = ' ',
@@ -54,11 +57,20 @@ def tokenize_line(line: str, ngram: int,
     # always count the unigrams
     return tokens
 
+
+def tokenize(sentences: list[str]):
+    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
+    return tokenizer(sentences, return_tensors='pt', max_length=MAX_LENGTH, padding="max_length", truncation=True)
+
 # PROVIDED
-def read_file_spooky(datapath: str, ngram: int, by_character: bool = False, max_rows=10000) -> list:
+
+
+def read_file_spooky(datapath: str, ngram: int, by_character: bool = False, max_rows=10000,
+                     max_length=MAX_LENGTH, padding="max_length", truncation=True) -> list:
     '''Reads and Returns the "data" as list of list (as shown above)'''
     x_data = []
     y_data = []
+    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
     csv.field_size_limit(sys.maxsize)
     with open(datapath, encoding='utf-8') as csvfile:
         reader = csv.DictReader(csvfile)
@@ -67,11 +79,19 @@ def read_file_spooky(datapath: str, ngram: int, by_character: bool = False, max_
                 break  # Stop reading if max_rows is reached
             # THIS IS WHERE WE GET CHARACTERS INSTEAD OF WORDS
             # replace spaces with underscores
-            x_data.append(tokenize_line(
-                row['article'].lower(), ngram, by_char=by_character, space_char="_"))
-            y_data.append(tokenize_line(
-                row['abstract'].lower(), ngram, by_char=by_character, space_char="_"))
-    return x_data, y_data
+            x_data.append(row['article'].lower())
+            y_data.append(row['abstract'].lower())
+
+            # encoded_train = tokenizer(
+            #     sequences, padding="max_length", truncation=True, return_tensors="tf").data
+            # x_data.append(tokenize_line(
+            #     row['article'].lower(), ngram, by_char=by_character, space_char="_"))
+            # y_data.append(tokenize_line(
+            #     row['abstract'].lower(), ngram, by_char=by_character, space_char="_"))
+    return tokenizer(x_data, return_tensors='pt',
+                     max_length=max_length, padding=padding, truncation=truncation), tokenizer(y_data, return_tensors='pt',
+                                                                                               max_length=max_length, padding=padding, truncation=truncation)
+
 
 def save_word2vec(embeddings: Word2Vec, filename: str) -> None:
     """
@@ -84,8 +104,9 @@ def save_word2vec(embeddings: Word2Vec, filename: str) -> None:
     print('Saving Word2Vec')
     embeddings.save(filename)
 
+
 def train_word2vec(data: list[list[str]], embeddings_size: int,
-                    window: int = 5, min_count: int = 1, sg: int = 1) -> Word2Vec:
+                   window: int = 5, min_count: int = 1, sg: int = 1) -> Word2Vec:
     """
     Create new word embeddings based on our data.
 
@@ -98,11 +119,13 @@ def train_word2vec(data: list[list[str]], embeddings_size: int,
         https://radimrehurek.com/gensim/models/word2vec.html
     """
     print('Creating Word2Vec')
-    return Word2Vec(sentences=data, 
-                    vector_size=embeddings_size, 
-                    window=window, 
-                    min_count=min_count, 
+    return Word2Vec(sentences=data,
+                    vector_size=embeddings_size,
+                    window=window,
+                    min_count=min_count,
                     sg=sg)
+
+
 def load_word2vec(filename: str) -> Word2Vec:
     """
     Loads weights of trained gensim Word2Vec model from a file.
