@@ -9,6 +9,8 @@ NUM_SEQUENCES_PER_BATCH = 128
 from transformers import BertTokenizer, BertModel, BartForConditionalGeneration, BartTokenizer
 import textwrap
 import csv
+from rouge_score import rouge_scorer
+
 
 def read_data(filepath='train.csv'):
     start_time = datetime.datetime.now()
@@ -67,6 +69,11 @@ def predict_with_model(data):
     formatted_summary = "\n".join(textwrap.wrap(summary, width=80))
     return formatted_summary
 
+def evaluate(pred, truth):
+    scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'])
+    scores = scorer.score(pred, truth)
+    print(scores)
+
 if __name__ == '__main__':
     # X, y = read_data()
     # print("THE START: -->", X[0])
@@ -81,5 +88,7 @@ if __name__ == '__main__':
         reader = csv.DictReader(csvfile)
         for index, row in enumerate(reader):
             data = row['article'].lower()
+            truth = row['abstract'].lower()
             break
-    print(predict_with_model(data))
+    pred = predict_with_model(data)
+    print(evaluate(pred, truth))
