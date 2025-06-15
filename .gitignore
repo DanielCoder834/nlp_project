@@ -1,7 +1,9 @@
 ._test.csv
 test.csv
-._train.csv
+.train.csv
 train.csv
 ._validation.csv
 validation.csv
 demo.ipynb
+fine_tuned/
+fine_tuned1/

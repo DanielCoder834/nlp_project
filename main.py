@@ -58,8 +58,53 @@ def create_dataloaders(X: list, y: list, num_sequences_per_batch: int,
         train_dataset, batch_size=num_sequences_per_batch)
     return test_loader, train_loader
 
-def predict_with_model(data):
-    model_name = "facebook/bart-large-cnn"
+def predict_with_model(model_name="facebook/bart-base", dataloader=None):
+    scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'])
+    model = BartForConditionalGeneration.from_pretrained(model_name)
+    print(model.config)
+    model.eval()
+    tokenizer = BartTokenizer.from_pretrained(model_name)
+    # inputs = tokenizer("summarize: " + data, return_tensors="pt", max_length=1024, truncation=True).input_ids
+    # sumary_ids = generated_ids = model.generate(inputs, max_length=150, min_length=50, length_penalty=2.0, num_beams=4, early_stopping=True)
+    predicted = []
+    truth = []
+    rouges = []
+    for index, batch in enumerate(dataloader):
+        if index > 1:
+            break
+        input_ids = batch['input_ids']
+        attention_mask = batch['attention_mask']
+        labels = batch['labels']
+        # sample = "summarize: This is a simple article about the benefits of exercise for cardiovascular health."
+        # inputs = tokenizer(sample, return_tensors="pt", truncation=True, max_length=1024)
+        # inputs = {k: v for k, v in inputs.items()}
+        # output = model.generate(**inputs, max_length=150, num_beams=4)
+        # print('SAMPLE', tokenizer.decode(output[0], skip_special_tokens=True))
+        # break
+        with torch.no_grad():
+                generated_ids = model.generate(
+                    input_ids=input_ids,
+                    attention_mask=attention_mask,
+                    max_length=150, 
+                    min_length=50, 
+                    length_penalty=2.0, 
+                    num_beams=4, 
+                    early_stopping=True
+                )
+        decoded_preds = tokenizer.batch_decode(generated_ids, skip_special_tokens=True)
+        print('PREDICTED', decoded_preds)
+        predicted.append(decoded_preds)
+        labels = labels.cpu().numpy()
+        decoded_labels = tokenizer.batch_decode(labels, skip_special_tokens=True)
+        truth.append(decoded_labels)
+        print("TRUTH", decoded_labels)
+        rouge_score = scorer.score(decoded_preds[1], decoded_labels[0])
+        rouges.append(rouge_score)
+    #summary_ids = model.generate(inputs, max_length=150, min_length=50, length_penalty=2.0, num_beams=4, early_stopping=True)
+
+    return predicted, truth, rouges
+
+def predict_with_model_first(model_name="facebook/bart-base", data=None):
     model = BartForConditionalGeneration.from_pretrained(model_name)
     tokenizer = BartTokenizer.from_pretrained(model_name)
     inputs = tokenizer.encode("summarize: " + data, return_tensors="pt", max_length=1024, truncation=True)
@@ -68,27 +113,43 @@ def predict_with_model(data):
     summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
     formatted_summary = "\n".join(textwrap.wrap(summary, width=80))
     return formatted_summary
-
 def evaluate(pred, truth):
     scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'])
     scores = scorer.score(pred, truth)
-    print(scores)
+    return scores
 
+def calculate_average_fmeasures(scores):
+    rouge1 = []
+    rouge2 = []
+    rougel = []
+    for score_dict in scores:
+        rouge1.append(score_dict['rouge1'].fmeasure)
+        rouge2.append(score_dict['rouge2'].fmeasure)
+        rougel.append(score_dict['rougeL'].fmeasure)
+    avg_rouge1_f = sum(rouge1) / len(rouge1)
+    avg_rouge2_f = sum(rouge2) / len(rouge2)
+    avg_rougeL_f = sum(rougel) / len(rougel)
+    return avg_rouge1_f, avg_rouge2_f, avg_rougeL_f
 if __name__ == '__main__':
-    # X, y = read_data()
-    # print("THE START: -->", X[0])
-    # print(y)
-    # train_vec = utils.train_word2vec(X, EMBEDDINGS_SIZE)
-    # utils.save_word2vec(train_vec, "word_embeddings")
-    # embeddings = utils.load_word2vec("word_embeddings")
-    # test_loader, train_loader = create_dataloaders(
-    #     X, y, NUM_SEQUENCES_PER_BATCH)
-    # print(len(embeddings.wv))
+    train, test = utils.load_dataset('train.csv')
+    print(len(train))
+    print(len(test))
+    fined_tuned_scores = []
+    baseline_scores = []
+    utils.finetune_model(epochs=7, train_loader=train)
     with open('test.csv', encoding='utf-8') as csvfile:
         reader = csv.DictReader(csvfile)
         for index, row in enumerate(reader):
+            print(index)
             data = row['article'].lower()
             truth = row['abstract'].lower()
-            break
-    pred = predict_with_model(data)
-    print(evaluate(pred, truth))
+            
+            pred = predict_with_model_first('fine_tuned1', data=data)
+            fined_tuned_scores.append(evaluate(pred, truth))
+
+            pred = predict_with_model_first(data=data)
+            baseline_scores.append(evaluate(pred, truth))
+            if index > 10: 
+                break
+    print('finetuned', calculate_average_fmeasures(fined_tuned_scores))
+    print('baseline', calculate_average_fmeasures(baseline_scores))
