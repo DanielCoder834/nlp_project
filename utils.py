@@ -6,9 +6,7 @@ import csv
 import sys
 import torch
 import torch.nn as nn
-from gensim.models import Word2Vec
-from transformers import BertTokenizer
-from transformers import AutoTokenizer, BartForConditionalGeneration
+from transformers import BartTokenizer, BartForConditionalGeneration
 import torch.optim as optim
 from datasets import Dataset
 from torch.utils.data import DataLoader
@@ -18,99 +16,26 @@ LEARNING_RATE = 2e-5
 EPSILON = 1e-8
 EPOCHS=5
 model_name = "facebook/bart-base"
-tokenizer = AutoTokenizer.from_pretrained(model_name)
+tokenizer = BartTokenizer.from_pretrained(model_name)
 model = BartForConditionalGeneration.from_pretrained(model_name)
 
 nltk.download('punkt')
 nltk.download('punkt_tab')
 
-SENTENCE_BEGIN = "<s>"
-SENTENCE_END = "</s>"
 MAX_LENGTH = 25
 
 # PROVIDED
 
 
-def read_file_spooky(datapath: str, ngram: int, by_character: bool = False, max_rows=10000,
-                     max_length=MAX_LENGTH, padding="max_length", truncation=True) -> list:
-    '''Reads and Returns the "data" as list of list (as shown above)'''
-    x_data = []
-    y_data = []
-    tokenizer = BertTokenizer.from_pretrained('bert-base-uncased')
-    csv.field_size_limit(sys.maxsize)
-    with open(datapath, encoding='utf-8') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for index, row in enumerate(reader):
-            if max_rows is not None and index >= max_rows:
-                break  # Stop reading if max_rows is reached
-            # THIS IS WHERE WE GET CHARACTERS INSTEAD OF WORDS
-            # replace spaces with underscores
-            x_data.append(row['article'].lower())
-            y_data.append(row['abstract'].lower())
-
-            # encoded_train = tokenizer(
-            #     sequences, padding="max_length", truncation=True, return_tensors="tf").data
-            # x_data.append(tokenize_line(
-            #     row['article'].lower(), ngram, by_char=by_character, space_char="_"))
-            # y_data.append(tokenize_line(
-            #     row['abstract'].lower(), ngram, by_char=by_character, space_char="_"))
-    return tokenizer(x_data, return_tensors='pt',
-                     max_length=max_length, padding=padding, truncation=truncation), tokenizer(y_data, return_tensors='pt',
-                                                                                               max_length=max_length, padding=padding, truncation=truncation)
-
-
-def save_word2vec(embeddings: Word2Vec, filename: str) -> None:
-    """
-    Saves weights of trained gensim Word2Vec model to a file.
-
-    Params:
-        obj: The object.
-        filename: The destination file.
-    """
-    print('Saving Word2Vec')
-    embeddings.save(filename)
-
-
-def train_word2vec(data: list[list[str]], embeddings_size: int,
-                   window: int = 5, min_count: int = 1, sg: int = 1) -> Word2Vec:
-    """
-    Create new word embeddings based on our data.
-
-    Params:
-        data: The corpus
-        embeddings_size: The dimensions in each embedding
-
-    Returns:
-        A gensim Word2Vec model
-        https://radimrehurek.com/gensim/models/word2vec.html
-    """
-    print('Creating Word2Vec')
-    return Word2Vec(sentences=data,
-                    vector_size=embeddings_size,
-                    window=window,
-                    min_count=min_count,
-                    sg=sg)
-
-
-def load_word2vec(filename: str) -> Word2Vec:
-    """
-    Loads weights of trained gensim Word2Vec model from a file.
-
-    Params:
-        filename: The saved model file.
-    """
-    return Word2Vec.load(filename)
-
-
 def load_dataset(datapath, test_pct=.9):
-    df = pd.read_csv(datapath, nrows=250)
+    df = pd.read_csv(datapath, nrows=500)
     dataset = Dataset.from_pandas(df)
     dataset = dataset.map(preprocess_data, batched=True, remove_columns=dataset.column_names)
     dataset.set_format(type='torch', columns=['input_ids', 'attention_mask', 'labels'])
     train, test = torch.utils.data.random_split(
         dataset, [test_pct, 1 - test_pct])
-    train_dataloader = DataLoader(train, batch_size=2, shuffle=True)
-    test_dataloader = DataLoader(test, batch_size=2, shuffle=True)
+    train_dataloader = DataLoader(train, batch_size=4, shuffle=True)
+    test_dataloader = DataLoader(test, batch_size=4, shuffle=True)
     return train_dataloader, test_dataloader
 
 def preprocess_data(data):
@@ -124,7 +49,7 @@ def preprocess_data(data):
     return model_inputs
 
 def finetune_model(epochs=EPOCHS, train_loader=None, lr=LEARNING_RATE, eps=EPSILON):
-    optimizer = optim.Adam(model.parameters(), lr=lr, eps=eps)
+    optimizer = optim.AdamW(model.parameters(), lr=lr, eps=eps,  weight_decay=0.01)
     for epoch_i in range(epochs):
         print("Epoch:", epoch_i + 1, "/", epochs)
 

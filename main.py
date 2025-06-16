@@ -6,57 +6,11 @@ from torch.utils.data import TensorDataset, DataLoader
 from gensim.models import Word2Vec
 EMBEDDINGS_SIZE = 50
 NUM_SEQUENCES_PER_BATCH = 128
-from transformers import BertTokenizer, BertModel, BartForConditionalGeneration, BartTokenizer
+from transformers import BartForConditionalGeneration, BartTokenizer
 import textwrap
 import csv
 from rouge_score import rouge_scorer
 
-
-def read_data(filepath='train.csv'):
-    start_time = datetime.datetime.now()
-    print(f'Started downloading at {start_time}')
-    X, y = utils.read_file_spooky(filepath, 1, max_rows=1000)
-    end_time = datetime.datetime.now()
-    print(f'Downloading runtime {end_time-start_time}')
-    return X, y
-
-
-def create_dataloaders(X: list, y: list, num_sequences_per_batch: int,
-                       test_pct: float = 0.1, shuffle: bool = True) -> tuple[torch.utils.data.DataLoader]:
-    """
-    Convert our data into a PyTorch DataLoader.    
-    A DataLoader is an object that splits the dataset into batches for training.
-    PyTorch docs: 
-        https://pytorch.org/tutorials/beginner/basics/data_tutorial.html
-        https://pytorch.org/docs/stable/data.html
-
-    Note that you have to first convert your data into a PyTorch DataSet.
-    You DO NOT have to implement this yourself, instead you should use a TensorDataset.
-
-    You are in charge of splitting the data into train and test sets based on the given
-    test_pct. There are several functions you can use to acheive this!
-
-    The shuffle parameter refers to shuffling the data *in the loader* (look at the docs),
-    not whether or not to shuffle the data before splitting it into train and test sets.
-    (don't shuffle before splitting)
-
-    Params:
-        X: A list of input sequences
-        Y: A list of labels
-        num_sequences_per_batch: Batch size
-        test_pct: The proportion of samples to use in the test set.
-        shuffle: INSTRUCTORS ONLY
-
-    Returns:
-        One DataLoader for training, and one for testing.
-    """
-    # YOUR CODE HERE
-    dataset = TensorDataset(X["input_ids"], X["attention_mask"], y["input_ids"])
-    test_dataset, train_dataset = torch.utils.data.random_split(
-        dataset, [test_pct, 1 - test_pct])
-    test_loader, train_loader = DataLoader(test_dataset, batch_size=num_sequences_per_batch), DataLoader(
-        train_dataset, batch_size=num_sequences_per_batch)
-    return test_loader, train_loader
 
 def predict_with_model(model_name="facebook/bart-base", dataloader=None):
     scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'])
@@ -105,7 +59,9 @@ def predict_with_model(model_name="facebook/bart-base", dataloader=None):
     return predicted, truth, rouges
 
 def predict_with_model_first(model_name="facebook/bart-base", data=None):
+    # Does one instance of inference based on the inputted text
     model = BartForConditionalGeneration.from_pretrained(model_name)
+    model.eval()
     tokenizer = BartTokenizer.from_pretrained(model_name)
     inputs = tokenizer.encode("summarize: " + data, return_tensors="pt", max_length=1024, truncation=True)
     summary_ids = model.generate(inputs, max_length=150, min_length=50, length_penalty=2.0, num_beams=4, early_stopping=True)
@@ -114,11 +70,13 @@ def predict_with_model_first(model_name="facebook/bart-base", data=None):
     formatted_summary = "\n".join(textwrap.wrap(summary, width=80))
     return formatted_summary
 def evaluate(pred, truth):
+    # Calculates the ROUGE metrics for a singular prediction
     scorer = rouge_scorer.RougeScorer(['rouge1', 'rouge2', 'rougeL'])
     scores = scorer.score(pred, truth)
     return scores
 
 def calculate_average_fmeasures(scores):
+    # Calculates the average f1 scores for each of the ROUGE metrics
     rouge1 = []
     rouge2 = []
     rougel = []
@@ -131,13 +89,14 @@ def calculate_average_fmeasures(scores):
     avg_rougeL_f = sum(rougel) / len(rougel)
     return avg_rouge1_f, avg_rouge2_f, avg_rougeL_f
 if __name__ == '__main__':
+    # Load the data
     train, test = utils.load_dataset('train.csv')
-    print(len(train))
-    print(len(test))
     fined_tuned_scores = []
     baseline_scores = []
-    utils.finetune_model(epochs=7, train_loader=train)
+    # Fine tune the model
+    utils.finetune_model(epochs=12, train_loader=train)
     with open('test.csv', encoding='utf-8') as csvfile:
+        # Do inference with both the baseline and fine tuned model and calculate the ROUGE
         reader = csv.DictReader(csvfile)
         for index, row in enumerate(reader):
             print(index)
@@ -149,7 +108,14 @@ if __name__ == '__main__':
 
             pred = predict_with_model_first(data=data)
             baseline_scores.append(evaluate(pred, truth))
-            if index > 10: 
+            if index > 250: 
                 break
-    print('finetuned', calculate_average_fmeasures(fined_tuned_scores))
-    print('baseline', calculate_average_fmeasures(baseline_scores))
+    # Compare the f1 averages of the baseline and fine tuned
+    fine_tune_results = calculate_average_fmeasures(fined_tuned_scores)
+    baseline_results = calculate_average_fmeasures(baseline_scores)
+    print('finetuned', fine_tune_results)
+    print('baseline', baseline_results)
+    with open("results.txt", "w") as f:
+        f.write('baseline:' + str(baseline_results) + '\n')
+        f.write('finetuned:'+ str(fine_tune_results) + '\n')
+        
