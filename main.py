@@ -1,14 +1,22 @@
+from nltk.corpus import stopwords
+import nltk
+from nltk.tokenize import sent_tokenize, word_tokenize
+from collections import Counter
+import csv
+import textwrap
+from transformers import BertTokenizer, BertModel, BartForConditionalGeneration, BartTokenizer
 import pandas as pd
 import utils
 import datetime
 import torch
 from torch.utils.data import TensorDataset, DataLoader
 from gensim.models import Word2Vec
+import math
+import numpy as np
+import sys
 EMBEDDINGS_SIZE = 50
 NUM_SEQUENCES_PER_BATCH = 128
-from transformers import BertTokenizer, BertModel, BartForConditionalGeneration, BartTokenizer
-import textwrap
-import csv
+
 
 def read_data(filepath='train.csv'):
     start_time = datetime.datetime.now()
@@ -22,9 +30,9 @@ def read_data(filepath='train.csv'):
 def create_dataloaders(X: list, y: list, num_sequences_per_batch: int,
                        test_pct: float = 0.1, shuffle: bool = True) -> tuple[torch.utils.data.DataLoader]:
     """
-    Convert our data into a PyTorch DataLoader.    
+    Convert our data into a PyTorch DataLoader.
     A DataLoader is an object that splits the dataset into batches for training.
-    PyTorch docs: 
+    PyTorch docs:
         https://pytorch.org/tutorials/beginner/basics/data_tutorial.html
         https://pytorch.org/docs/stable/data.html
 
@@ -49,23 +57,112 @@ def create_dataloaders(X: list, y: list, num_sequences_per_batch: int,
         One DataLoader for training, and one for testing.
     """
     # YOUR CODE HERE
-    dataset = TensorDataset(X["input_ids"], X["attention_mask"], y["input_ids"])
+    dataset = TensorDataset(
+        X["input_ids"], X["attention_mask"], y["input_ids"])
     test_dataset, train_dataset = torch.utils.data.random_split(
         dataset, [test_pct, 1 - test_pct])
     test_loader, train_loader = DataLoader(test_dataset, batch_size=num_sequences_per_batch), DataLoader(
         train_dataset, batch_size=num_sequences_per_batch)
     return test_loader, train_loader
 
+
 def predict_with_model(data):
     model_name = "facebook/bart-large-cnn"
     model = BartForConditionalGeneration.from_pretrained(model_name)
     tokenizer = BartTokenizer.from_pretrained(model_name)
-    inputs = tokenizer.encode("summarize: " + data, return_tensors="pt", max_length=1024, truncation=True)
-    summary_ids = model.generate(inputs, max_length=150, min_length=50, length_penalty=2.0, num_beams=4, early_stopping=True)
+    inputs = tokenizer.encode(
+        "summarize: " + data, return_tensors="pt", max_length=1024, truncation=True)
+    summary_ids = model.generate(
+        inputs, max_length=150, min_length=50, length_penalty=2.0, num_beams=4, early_stopping=True)
 
     summary = tokenizer.decode(summary_ids[0], skip_special_tokens=True)
     formatted_summary = "\n".join(textwrap.wrap(summary, width=80))
     return formatted_summary
+
+
+def predict_with_basic():
+    # Set up
+    #########
+    abstracts = []
+    articles = []
+    max_rows = 5000
+    # csv.field_size_limit(sys.maxsize)
+    with open('test.csv', encoding='utf-8') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for index, row in enumerate(reader):
+            if max_rows is not None and index >= max_rows:
+                break
+            articles.append(row['article'].lower())
+            abstracts.append(row['abstract'].lower())
+    # stopWords = set(stopwords.words("english"))
+    # freq = Counter(data)
+    page_count = len(articles)
+    full_text_article = " ".join(articles)
+    # full_text_abstracts = " ".join(abstracts)
+    token_sent_article = sent_tokenize(full_text_article)
+    stop_words = set(stopwords.words('english'))
+    print("--- Finished the set up ---")
+    # Set up Freq
+    #######
+    word_freq = Counter()
+    sentence_word_freq = []
+    for sentence in token_sent_article:
+        words = word_tokenize(sentence.lower())
+        words = [word for word in words if word not in stop_words]
+
+        freq = Counter(words)
+        sentence_word_freq.append(freq)
+        word_freq += freq
+    print("--- Finished Freq ---")
+    # TF
+    #####
+    tf_matrix = []
+    for freq in sentence_word_freq:
+        sent_length = sum(freq.values())
+        tf_sentence = {}
+        for word, count in freq.items():
+            tf_sentence[word] = count / sent_length
+        tf_matrix.append(tf_sentence)
+    print("--- TF ---")
+    # IDF
+    ######
+    doc_per_word = {}
+    for word in word_freq:
+        doc_per_word[word] = 0
+        for freq in sentence_word_freq:
+            if word in freq:
+                doc_per_word[word] += 1
+    num_sentences = len(token_sent_article)
+    idf_matrix = {}
+    for word, count in doc_per_word.items():
+        idf_value = math.log(num_sentences / (1 + count))
+        idf_matrix[word] = idf_value
+    tfidf_matrix = []
+    for tf_sentence in tf_matrix:
+        tfidf_sentence = {}
+        for word, tf_value in tf_sentence.items():
+            tfidf_value = tf_value * idf_matrix[word]
+            tfidf_sentence[word] = tfidf_value
+        tfidf_matrix.append(tfidf_sentence)
+
+    print("--- IDF ---")
+    #######
+    sent_scores = []
+    for tfidf in tfidf_matrix:
+        if len(tfidf) == 0:
+            sent_scores.append(0)
+            continue
+        sentence_score = sum(tfidf.values()) / len(tfidf)
+        sentence_score.append(sentence_score)
+    print("--- Scores ---")
+    ######
+    threshold_factor = 1
+    threshold = np.mean(sentence_score) * threshold_factor
+
+    summary_sentence = [token_sent_article[i] for i in range(
+        len(token_sent_article)) if sent_scores[i] >= threshold]
+    return summary_sentence
+
 
 if __name__ == '__main__':
     # X, y = read_data()
@@ -77,9 +174,12 @@ if __name__ == '__main__':
     # test_loader, train_loader = create_dataloaders(
     #     X, y, NUM_SEQUENCES_PER_BATCH)
     # print(len(embeddings.wv))
-    with open('test.csv', encoding='utf-8') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for index, row in enumerate(reader):
-            data = row['article'].lower()
-            break
-    print(predict_with_model(data))
+
+    ####
+    # with open('test.csv', encoding='utf-8') as csvfile:
+    #     reader = csv.DictReader(csvfile)
+    #     for index, row in enumerate(reader):
+    #         data = row['article'].lower()
+    #         break
+    # print(predict_with_model(data))
+    print(predict_with_basic())
