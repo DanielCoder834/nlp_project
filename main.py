@@ -80,25 +80,13 @@ def predict_with_model(data):
     return formatted_summary
 
 
-def predict_with_basic():
-    # Set up
-    #########
-    abstracts = []
-    articles = []
-    max_rows = 5000
-    # csv.field_size_limit(sys.maxsize)
-    with open('test.csv', encoding='utf-8') as csvfile:
-        reader = csv.DictReader(csvfile)
-        for index, row in enumerate(reader):
-            if max_rows is not None and index >= max_rows:
-                break
-            articles.append(row['article'].lower())
-            abstracts.append(row['abstract'].lower())
+def get_tdidif_scores(articles, max_rows=100):
     # stopWords = set(stopwords.words("english"))
     # freq = Counter(data)
     page_count = len(articles)
+    # full_text_article = " ".join(
+    #     articles[:(page_count / 2)]) + " ".join(abstracts)
     full_text_article = " ".join(articles)
-    # full_text_abstracts = " ".join(abstracts)
     token_sent_article = sent_tokenize(full_text_article)
     stop_words = set(stopwords.words('english'))
     print("--- Finished the set up ---")
@@ -153,15 +141,32 @@ def predict_with_basic():
             sent_scores.append(0)
             continue
         sentence_score = sum(tfidf.values()) / len(tfidf)
-        sentence_score.append(sentence_score)
+        sent_scores.append(sentence_score)
     print("--- Scores ---")
+    return sent_scores
+
+
+def predict_with_basic(article, max_rows=100, summary_length=128):
+    abstracts = []
+    articles = []
+    csv.field_size_limit(sys.maxsize)
+    with open('test.csv', encoding='utf-8') as csvfile:
+        reader = csv.DictReader(csvfile)
+        for index, row in enumerate(reader):
+            if max_rows is not None and index >= max_rows:
+                break
+            articles.append(row['article'].lower())
+            abstracts.append(row['abstract'].lower())
+    # Set up
+    #########
+    sent_scores = get_tdidif_scores(articles, max_rows)
     ######
     threshold_factor = 1
-    threshold = np.mean(sentence_score) * threshold_factor
+    threshold = np.mean(sent_scores) * threshold_factor
 
-    summary_sentence = [token_sent_article[i] for i in range(
-        len(token_sent_article)) if sent_scores[i] >= threshold]
-    return summary_sentence
+    summary_sentence = [article[i]
+                        for i in range(summary_length) if sent_scores[i] >= threshold]
+    return " ".join(summary_sentence), " ".join(abstracts)
 
 
 if __name__ == '__main__':
@@ -182,4 +187,6 @@ if __name__ == '__main__':
     #         data = row['article'].lower()
     #         break
     # print(predict_with_model(data))
-    print(predict_with_basic())
+
+    pred, truth = predict_with_basic()
+    rouge_score = evalute(pred, truth)
